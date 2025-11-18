@@ -13,7 +13,6 @@
 body { background:#f7f7f9; }
 .container { max-width:1000px; margin-top:20px; }
 .hour-input { margin-bottom:10px; }
-.pointer { cursor:pointer; }
 </style>
 </head>
 <body>
@@ -23,9 +22,8 @@ body { background:#f7f7f9; }
     <div class="card-body">
       <h4 class="card-title">Student Time Tracker</h4>
 
-      <!-- Login -->
       <div id="loginArea" class="form-inline">
-        <input id="studentName" class="form-control mr-2" placeholder="Your name" required>
+        <input id="studentName" class="form-control mr-2" placeholder="Your name">
         <input id="studentPin" class="form-control mr-2" placeholder="PIN (optional)">
         <input id="secretTokenInput" class="form-control mr-2" placeholder="Secret token">
         <button id="loginBtn" class="btn btn-primary">Enter</button>
@@ -45,7 +43,6 @@ body { background:#f7f7f9; }
     </div>
   </div>
 
-  <!-- Main App -->
   <div id="mainApp" style="display:none;">
     <div class="card mb-3">
       <div class="card-body">
@@ -76,10 +73,10 @@ body { background:#f7f7f9; }
 </div>
 
 <script>
-const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwFbKLSGCckPxx6yAJCYW3r49bExd0nBu3jNUwgSHRYSSGhx0Arw6cvHTrVpJnoa21YfQ/exec"; // <-- Replace with your deployed Apps Script URL
+const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwXzv224lxWriIW66QYPOKo9hiFaUYj3seyjCp4-A02tzS2f1tGMnyYJXR27uI9rc0lDQ/exec"; // <-- replace with your Apps Script /exec URL
 let SECRET_TOKEN='', currentUser='', currentPin='';
 
-// Show alert
+// Alerts
 function showAlert(title,text,icon='info'){return Swal.fire({title,text,icon});}
 
 // Login
@@ -112,17 +109,15 @@ function initHoursInputs(){
   for(let h=0; h<24; h++){
     const div=document.createElement('div'); div.className='hour-input';
     div.innerHTML=`<label>${String(h).padStart(2,'0')}:00</label>
-      <input data-hour="${h}" class="form-control" type="text" placeholder="Activity for ${String(h).padStart(2,'0')}:00">`;
+      <input data-hour="${h}" class="form-control" type="text" placeholder="Activity">`;
     container.appendChild(div);
   }
 
-  // Load saved data for date
   const date=document.getElementById('datePicker').value;
   if(date && currentUser){
     const saved=localStorage.getItem(`${currentUser}-${date}`);
     if(saved){
-      const rows=JSON.parse(saved);
-      rows.forEach(r=>{
+      JSON.parse(saved).forEach(r=>{
         const inp=container.querySelector(`input[data-hour='${parseInt(r.hour)}']`);
         if(inp) inp.value=r.activity;
       });
@@ -138,13 +133,10 @@ document.getElementById('dayForm').addEventListener('submit',function(e){
   if(!date) return showAlert('Missing date','Select a date','warning');
 
   const inputs=Array.from(document.querySelectorAll('#hoursContainer input'));
-  
-  // only send filled hours
-  const rows = inputs
-    .filter(inp => inp.value.trim() !== '')
-    .map(inp => ({
+  const rows = inputs.filter(inp=>inp.value.trim()!=='')
+    .map(inp=>({
       date,
-      hour: inp.dataset.hour.padStart(2,'0') + ':00',
+      hour: inp.dataset.hour.padStart(2,'0')+':00',
       activity: inp.value.trim(),
       user: currentUser,
       pin: currentPin,
@@ -160,34 +152,30 @@ document.getElementById('dayForm').addEventListener('submit',function(e){
   fetch(WEB_APP_URL,{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({ token: SECRET_TOKEN, rows })
+    body:JSON.stringify({token:SECRET_TOKEN, rows})
   })
   .then(r=>r.json())
   .then(res=>{
     if(res.result==='success') showAlert('Saved', `${rows.length} rows synced`,'success');
-    else showAlert('Error', res.message || 'Failed','error');
+    else showAlert('Error', res.message||'Failed','error');
   })
   .catch(err=>showAlert('Error','Could not save: '+err.message,'error'));
 
   renderWeekChart();
 });
 
-// Render week chart (local)
+// Week chart
 let chartInstance=null;
 function renderWeekChart(){
   const chartData=new Array(24).fill(0);
   const date=document.getElementById('datePicker').value;
   for(let i=0;i<7;i++){
-    const d=new Date(date);
-    d.setDate(d.getDate()-d.getDay()+i);
+    const d=new Date(date); d.setDate(d.getDate()-d.getDay()+i);
     const key=`${currentUser}-${d.toISOString().split('T')[0]}`;
     const saved=localStorage.getItem(key);
-    if(saved){
-      JSON.parse(saved).forEach(r=>{
-        const h=parseInt(r.hour);
-        chartData[h]++;
-      });
-    }
+    if(saved) JSON.parse(saved).forEach(r=>{
+      const h=parseInt(r.hour); if(!isNaN(h)) chartData[h]++;
+    });
   }
   const ctx=document.getElementById('weekChart').getContext('2d');
   if(chartInstance) chartInstance.destroy();
@@ -200,4 +188,3 @@ function renderWeekChart(){
 </script>
 </body>
 </html>
-
