@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Student Time Tracker</title>
+
+<link href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+
+<style>
+body { background:#f7f7f9; }
+.container { max-width:1000px; margin-top:20px; }
+.hour-input { margin-bottom:10px; }
+.pointer { cursor:pointer; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <h4 class="card-title">Student Time Tracker</h4>
+
+      <!-- Login -->
+      <div id="loginArea" class="form-inline">
+        <input id="studentName" class="form-control mr-2" placeholder="Your name" required>
+        <input id="studentPin" class="form-control mr-2" placeholder="PIN (optional)">
+        <input id="secretTokenInput" class="form-control mr-2" placeholder="Secret token">
+        <button id="loginBtn" class="btn btn-primary">Enter</button>
+      </div>
+
+      <div id="loggedInArea" style="display:none;">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <strong id="displayName"></strong>
+            <small id="displayPin" class="text-muted ml-2"></small>
+          </div>
+          <div>
+            <button id="logoutBtn" class="btn btn-sm btn-outline-secondary">Log out</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main App -->
+  <div id="mainApp" style="display:none;">
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="form-row mb-2">
+          <div class="col-md-4">
+            <label>Select Date</label>
+            <input id="datePicker" class="form-control" type="date">
+          </div>
+          <div class="col-md-4">
+            <label>Source</label>
+            <input id="sourceInput" class="form-control" placeholder="web or mobile">
+          </div>
+        </div>
+
+        <h6>Enter activities (24 hours)</h6>
+        <form id="dayForm">
+          <div id="hoursContainer" class="mb-2"></div>
+          <button type="submit" class="btn btn-success">Save Day</button>
+        </form>
+
+        <hr/>
+        <h6>Week View (Local)</h6>
+        <canvas id="weekChart" height="100"></canvas>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwFbKLSGCckPxx6yAJCYW3r49bExd0nBu3jNUwgSHRYSSGhx0Arw6cvHTrVpJnoa21YfQ/exec"; // <-- Replace with your deployed Apps Script URL
+let SECRET_TOKEN='', currentUser='', currentPin='';
+
+// Show alert
+function showAlert(title,text,icon='info'){return Swal.fire({title,text,icon});}
+
+// Login
+document.getElementById('loginBtn').addEventListener('click',function(){
+  const name=document.getElementById('studentName').value.trim();
+  const pin=document.getElementById('studentPin').value.trim();
+  const token=document.getElementById('secretTokenInput').value.trim();
+  if(!name||!token) return showAlert('Missing','Enter name and secret token','warning');
+  currentUser=name; currentPin=pin; SECRET_TOKEN=token;
+  document.getElementById('displayName').innerText=currentUser;
+  document.getElementById('displayPin').innerText=pin?'PIN: '+pin:'';
+  document.getElementById('loginArea').style.display='none';
+  document.getElementById('loggedInArea').style.display='block';
+  document.getElementById('mainApp').style.display='block';
+  initHoursInputs();
+  renderWeekChart();
+});
+
+// Logout
+document.getElementById('logoutBtn').addEventListener('click',function(){
+  SECRET_TOKEN=''; currentUser=''; currentPin='';
+  document.getElementById('loginArea').style.display='block';
+  document.getElementById('loggedInArea').style.display='none';
+  document.getElementById('mainApp').style.display='none';
+});
+
+// Generate 24 hour inputs
+function initHoursInputs(){
+  const container=document.getElementById('hoursContainer'); container.innerHTML='';
+  for(let h=0; h<24; h++){
+    const div=document.createElement('div'); div.className='hour-input';
+    div.innerHTML=`<label>${String(h).padStart(2,'0')}:00</label>
+      <input data-hour="${h}" class="form-control" type="text" placeholder="Activity for ${String(h).padStart(2,'0')}:00">`;
+    container.appendChild(div);
+  }
+
+  // Load saved data for date
+  const date=document.getElementById('datePicker').value;
+  if(date && currentUser){
+    const saved=localStorage.getItem(`${currentUser}-${date}`);
+    if(saved){
+      const rows=JSON.parse(saved);
+      rows.forEach(r=>{
+        const inp=container.querySelector(`input[data-hour='${parseInt(r.hour)}']`);
+        if(inp) inp.value=r.activity;
+      });
+    }
+  }
+}
+
+// Submit form
+document.getElementById('dayForm').addEventListener('submit',function(e){
+  e.preventDefault();
+  const date=document.getElementById('datePicker').value;
+  const source=document.getElementById('sourceInput').value||'web';
+  if(!date) return showAlert('Missing date','Select a date','warning');
+
+  const inputs=Array.from(document.querySelectorAll('#hoursContainer input'));
+  
+  // only send filled hours
+  const rows = inputs
+    .filter(inp => inp.value.trim() !== '')
+    .map(inp => ({
+      date,
+      hour: inp.dataset.hour.padStart(2,'0') + ':00',
+      activity: inp.value.trim(),
+      user: currentUser,
+      pin: currentPin,
+      source
+    }));
+
+  if(rows.length===0) return showAlert('No Data','No activities entered','warning');
+
+  // Save locally
+  localStorage.setItem(`${currentUser}-${date}`, JSON.stringify(rows));
+
+  // Submit to Google Sheets
+  fetch(WEB_APP_URL,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ token: SECRET_TOKEN, rows })
+  })
+  .then(r=>r.json())
+  .then(res=>{
+    if(res.result==='success') showAlert('Saved', `${rows.length} rows synced`,'success');
+    else showAlert('Error', res.message || 'Failed','error');
+  })
+  .catch(err=>showAlert('Error','Could not save: '+err.message,'error'));
+
+  renderWeekChart();
+});
+
+// Render week chart (local)
+let chartInstance=null;
+function renderWeekChart(){
+  const chartData=new Array(24).fill(0);
+  const date=document.getElementById('datePicker').value;
+  for(let i=0;i<7;i++){
+    const d=new Date(date);
+    d.setDate(d.getDate()-d.getDay()+i);
+    const key=`${currentUser}-${d.toISOString().split('T')[0]}`;
+    const saved=localStorage.getItem(key);
+    if(saved){
+      JSON.parse(saved).forEach(r=>{
+        const h=parseInt(r.hour);
+        chartData[h]++;
+      });
+    }
+  }
+  const ctx=document.getElementById('weekChart').getContext('2d');
+  if(chartInstance) chartInstance.destroy();
+  chartInstance=new Chart(ctx,{
+    type:'bar',
+    data:{labels:Array.from({length:24},(_,i)=>i+':00'), datasets:[{label:'Activities', data:chartData}]},
+    options:{responsive:true, plugins:{legend:{display:false}}}
+  });
+}
+</script>
+</body>
+</html>
+
